@@ -59,13 +59,13 @@ void initD_CLK()
         };
         (void)ledc_channel_config(&ledc_channel);
 
-        _isD_CLKInit = 1;
-        _isD_CLKRunning = 1;
     }
     else if (1 == _isD_CLKInit && 0 == _isD_CLKRunning)
     {
         (void)ledc_timer_resume(LEDC_LOW_SPEED_MODE,LEDC_TIMER_0);
     }
+    _isD_CLKInit = 1;
+    _isD_CLKRunning = 1;
     
 }
 
@@ -272,4 +272,5 @@ void t_runBuffer()
     
     _funcState = 1;
     return _funcState;
+
  }
