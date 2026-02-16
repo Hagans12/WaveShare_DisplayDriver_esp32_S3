@@ -1,5 +1,5 @@
 # WaveShare_DisplayDriver_esp32_S3 480X800 RGB display
-a driver library meant to be shared for people to learn how to make a driver specifically with esp32 in the RGB protocol so we don't have to relay on LVGL for embbed systems
+a driver and graphics library meant to be shared for people to learn how to make a library specifically with esp32 in the RGB protocol so we don't have to relay on LVGL for embbed systems and for people to fork and make their own
 
 Doument research scources for learning:
 - (ESP32-S3-Touch-LCD-4.3 Device and device documention links [https://www.waveshare.com/wiki/ESP32-S3-Touch-LCD-4.3#Demo_3])
