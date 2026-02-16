@@ -1,10 +1,17 @@
 /**
  * ©Connell T Hagans II 2026
- * current driver mode: rgb 565 (16 bit colour)
+ * will be uploading code to get hub so there is more public information abouty writing drivers for displays
+ * Display: https://www.crystalfontz.com/product/cfaf800480e1050sc-800x480-5-inch-color-tft
+ * Driver mode: rgb 565 (16 bit colour)
+ * Using the esp32-s3
+ * The only way to drive the LCD display is by using the LCD API provided by espressif sinc it envolves direct register access that espressif /
+ *      restricts for security reasons(wifi/bluetooth security)
+ * RGB565 format will be used
  */
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           HEADER GUARD
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 #ifndef WAVESHARE_DISPLAY_DRIVER_H
 #define WAVESHARE_DISPLAY_DRIVER_H
 
@@ -18,17 +25,12 @@
  */
 
 //RED
-    #define R0      -1
-    #define R1      -1
-    #define R2      -1
     #define R3      1
     #define R4      2
     #define R5      42
     #define R6      41
     #define R7      40
 //GREEN
-    #define G0      -1
-    #define G1      -1
     #define G2      39
     #define G3      0
     #define G4      45
@@ -36,9 +38,6 @@
     #define G6      47
     #define G7      21
 //BLUE
-    #define B0      -1
-    #define B1      -1
-    #define B2      -1
     #define B3      14
     #define B4      38
     #define B5      18
@@ -49,27 +48,37 @@
     #define H_SYNC  46  //HORIZONTIL SYNC
     #define V_SYNC  3   //VIRTICAL SYNC
     #define DE      5   //DATA ENABLE
-    #define XR      -1
-    #define YD      -1
-    #define XL      -1
-    #define YU      -1
 
 /**
  * Definitions for the physical display
+ * The dcumentation got me mostly there but the front and back porch had to be played with. same with the D_CLCK_SPEED
  */
 //TIMING
-    #define D_CLK_SPEED     25*1000*1000 //25 MHz i.e. 1 tick equals 0.04 microsecond
-    #define PIXEL_WIDTH     800
-    #define W_FRONTPORCH    4
-    #define W_BACKPORCH     4
-    #define PIXEL_HIGHT     800
-    #define H_FRONTPORCH    4
-    #define H_BACKPORCH     4
+    #define D_CLK_SPEED     16*1000*1000 
+
+    #define H_COUNT         800
+    #define H_FRONTPORCH    8
+    #define H_BACKPORCH     8
+    #define H_PULSWIDTH     4
+
+    #define V_COUNT         480
+    #define V_FRONTPORCH    10
+    #define V_BACKPORCH     10
+    #define V_PULSWIDTH     4
+
+//DATA
+    #define NUM_OF_FRAMEBUFFERS 2
+
+// COLOR FORMAT (Number of data lines for each color in a pixel)
+    #define RGB888 (8+8+8)
+    #define RGB565 (5+6+5)
+    #define RGB666 (6+6+6)
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           CONSTRUCTOR AND DESTRUCTOR
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 void WSDisplayDriver(void);     //init of display driver
 void _WSDisplayDriver_(void);   //deinit of display driver
 
@@ -90,11 +99,12 @@ void _WSDisplayDriver_(void);   //deinit of display driver
  * @return 1 is called properly
  */
 int TurnOnDisplay(void);
+
 /**
- * this can be called after WSDisplayDriver() and ShowDisplay() has been called
+ * this can be called after WSDisplayDriver() and TurnOnDisplay() has been called
  * will return 1 if ran properly
  * @return -1 = Display not properly inted
- * @return 0 if already turned off
+ * @return 0 if already off
  * @return 1 is called properly
  */
 int TurnOffDisplay(void);
@@ -112,7 +122,8 @@ int TurnOffDisplay(void);
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           TESTER FUNCTIONS (*REMOVE BEFOR FLIGHT*)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-int t_initRedTest();
+
+int t_initDisplayTest(); // just a test fuction to turn the screen red. Should be called alone
 
 
 #endif
