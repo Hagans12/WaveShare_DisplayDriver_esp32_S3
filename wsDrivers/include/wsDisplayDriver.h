@@ -7,6 +7,7 @@
  * The only way to drive the LCD display is by using the LCD API provided by espressif sinc it envolves direct register access that espressif /
  *      restricts for security reasons(wifi/bluetooth security)
  * RGB565 format will be used
+ * This driver is not fully fleshed out and the device may need to be reset a couple of times befor the display shows up again
  */
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           HEADER GUARD
@@ -54,10 +55,10 @@
  * The dcumentation got me mostly there but the front and back porch had to be played with. same with the D_CLCK_SPEED
  */
 //TIMING
-    #define D_CLK_SPEED     16*1000*1000 
+    #define D_CLK_SPEED     16*1000*1000 // must between 23MHz - 14MHz
 
     #define H_COUNT         800
-    #define H_FRONTPORCH    8
+    #define H_FRONTPORCH    48          //this number ended up being mor stable
     #define H_BACKPORCH     8
     #define H_PULSWIDTH     4
 
@@ -71,7 +72,7 @@
 
 // COLOR FORMAT (Number of data lines for each color in a pixel)
     #define RGB888 (8+8+8)
-    #define RGB565 (5+6+5)
+    #define RGB565 (5+6+5)  //realisticly the only one you will need for this project but the others were added as a demastration
     #define RGB666 (6+6+6)
 
 
@@ -80,6 +81,9 @@
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 void WSDisplayDriver(void);     //init of display driver
+/**
+ * This function must be called befor shutting down the display physically. errors will still pop up but they show up more with out this being called
+ */
 void _WSDisplayDriver_(void);   //deinit of display driver
 
 
@@ -123,7 +127,7 @@ int TurnOffDisplay(void);
 //                                                                           TESTER FUNCTIONS (*REMOVE BEFOR FLIGHT*)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-int t_initDisplayTest(); // just a test fuction to turn the screen red. Should be called alone
-
+int t_initDisplayTest(void); // just a test fuction to turn the screen with a color range test. Should be called alone(set D_CLK_SPEED to 16MHz for clearer resualts)
+int t_DisplayBufferTest(void); // just a test fuction to help pin point the for corners and the center. Should be called alone
 
 #endif
