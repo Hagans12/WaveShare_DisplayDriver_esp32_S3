@@ -19,6 +19,11 @@
 #include <stdio.h>
 
 //ESP INCLUDES
+#include "freertos/FreeRTOS.h"
+#include "freertos/task.h"
+
+#include "esp_attr.h"
+
 #include "esp_lcd_panel_rgb.h"
 #include "esp_lcd_panel_ops.h"
 
@@ -39,25 +44,73 @@
 #define BROWN       0X0253
 
 //FRAME BUFFER
+#define FRAMEBUFFERNUM 2
 #define BUFFERSIZE (H_COUNT*V_COUNT)
+    //must have a least one full row of pixels (800 or H_COUNT)
+#define BOUNCEBUFFER (H_COUNT*5 )
+    //is used for flushing the whole screen as long as the end number is a whole number
+#define BOUNCECOUNT (BUFFERSIZE/BOUNCEBUFFER)
 
-#define BUFFER_X_MAX (H_COUNT-1)
-#define BUFFER_Y_MAX (V_COUNT-1)
+#define X_COUNT H_COUNT
+#define Y_COUNT V_COUNT
 
+//COLOR FORMAT (Number of data lines for each color in a pixel)
+#define RGB565 (5+6+5)  //realisticly the only one you will need for this project but the others were added as a demastration
+
+//HOMOGENEOUS COORDINATES
+#define X_CENTER (X_COUNT/2)
+#define Y_CENTER (Y_COUNT/2)
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           PRIVITE VARIABLES
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //DISPLAY CONTROLS
-static _Bool _isDisplayInit = 0;        //is used to make sure every thing else below is in order
-static _Bool _isDisplayRunning = 0;       //is used to check if D_CLK is running or is paused
+    //is used to make sure every thing else below is in order
+static _Bool _isDisplayInit = 0;
+    //is used to check if D_CLK is running or is paused
+static _Bool _isDisplayRunning = 0;
 
-esp_lcd_panel_handle_t waveShareDisplay_panel = NULL; //the control handle for the display
+    //the control handle for the display
+esp_lcd_panel_handle_t waveShareDisplay_panel = NULL;
+    //configureation setting for waveShareDisplay_panel
+esp_lcd_rgb_panel_config_t rgb_panel_config =
+{
+    .clk_src = LCD_CLK_SRC_DEFAULT, //Select PLL_F160M as the default choice
+    .timings = //sets the timings FOR THE LCD signals
+    {
+        .pclk_hz            = D_CLK_SPEED,
+        .h_res              = H_COUNT,
+        .hsync_back_porch   = H_BACKPORCH,
+        .hsync_front_porch  = H_FRONTPORCH,
+        .hsync_pulse_width  = H_PULSWIDTH,
+        .v_res              = V_COUNT,
+        .vsync_back_porch   = V_BACKPORCH,
+        .vsync_front_porch  = V_FRONTPORCH,
+        .vsync_pulse_width  = V_PULSWIDTH,
+        .flags.pclk_active_neg =1,
+    }, 
+    .data_width = RGB565,
+    .bits_per_pixel = RGB565,
+    .de_gpio_num = DE,
+    .hsync_gpio_num = H_SYNC,
+    .vsync_gpio_num = V_SYNC,
+    .pclk_gpio_num =  D_CLK,
+    .disp_gpio_num = -1, // not in use
+    .data_gpio_nums = {R3,R4,R5,R6,R7,G2,G3,G4,G5,G6,G7,B3,B4,B5,B6,B7},
+    .psram_trans_align = DMABURSTSIZE,
+    .sram_trans_align = DMABURSTSIZE,
+    .flags.fb_in_psram = true, // allocate frame buffers from PSRAM
+    .num_fbs = FRAMEBUFFERNUM,
+    .bounce_buffer_size_px = BOUNCEBUFFER,
+    //.bounce_buffer_size_px = 0,
+};
 
 //FRAMER BUFFER
-void* MainFrameBuffer = NULL; //will get address from esp lcd function [fb0] (Will be the frame buffer that is displaied)
-void* DrawingFrameBuffer = NULL; //will get address from esp lcd function [fb1] (Will be the buffer that is drawn to then uploaded to the main frame buffer)
+    //will get address from esp lcd function [fb0] (Will be the frame buffer that is displaied)
+void* FrameBuffer0 = NULL;
+    //will get address from esp lcd function [fb1] (Will be the buffer that is drawn to then uploaded to the main frame buffer)
+void* FrameBuffer1 = NULL;
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -65,25 +118,14 @@ void* DrawingFrameBuffer = NULL; //will get address from esp lcd function [fb1] 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 //FRAME BUFFER
-/**
- * gets the adress of the frame buffer if the display has been inited
- */
-void init_FrameBuffer(void)
-{
-    if (NULL == DrawingFrameBuffer && 1 == _isDisplayInit)
-    {
-        printf("FrameBuffer Ininted\n ");
-        esp_lcd_rgb_panel_get_frame_buffer(waveShareDisplay_panel,NUM_OF_FRAMEBUFFERS,&MainFrameBuffer,&DrawingFrameBuffer);
-    }
-    
-}
 
 /**
  * releases the adress of the frame buffer
  */
 void deinit_FrameBuffer(void)
 {
-    DrawingFrameBuffer = NULL; 
+    FrameBuffer0 = NULL;
+    FrameBuffer1 = NULL;
 }
 
 
@@ -91,59 +133,161 @@ void deinit_FrameBuffer(void)
 //                                                                           PRIVITE FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
+//FRAME BUFFER FUNCTIONS:
+
 /**
  * is used in relation to a for loop or a 2d array and output a corrisponding 1d frame buffer array position
- * will abort if out side the frame buffer
+ * will abort if out side the _x or _y is bigger than H_COUNT or V_COUNT respectively
  */
-unsigned int ToFramBufferArray(unsigned int _x, unsigned int _y)
+unsigned int ToFramBufferArray(const unsigned int _x, const unsigned int _y)
 {
-    if (_x < H_COUNT && _y < V_COUNT)  
+    unsigned int x = _x;
+    unsigned int y = _y;
+    if (_x >= X_COUNT)  
     {
-        return ((_x)) + ((800) * (_y));
+        x = X_COUNT;
     }
-    abort();
+
+    if (_y >= Y_COUNT)  
+    {
+        y = Y_COUNT;
+    }
+    
+    return ((x)) + ((X_COUNT) * (y));
 }
 
-
-int TurnOnDisplay(void) //makes the proper calls and sitches internal vars to the opporiate values
+/**
+ * is used in relation to a for loop or a 2d array and output a corrisponding 1d frame buffer array position
+ */
+unsigned int NormalToFramBufferArray(const float _x, const float _y, unsigned short* out_x, unsigned short* out_y)
 {
-    if (0 == _isDisplayInit) //is checked first to make sure the display has been inited
+    unsigned int x = 0;
+    unsigned int y = 0;
+    float f_x = 0.f;
+    float f_y = 0.f;
+
+    f_x = _x;
+    f_y = _y;
+    
+    if (_x > 1.f)  
+    {
+        f_x = 1.f;
+    }
+    else if (_x<-1.f)
+    {
+        f_x = -1.f;
+    }
+    
+    if (_y > 1.f)  
+    {
+        f_y = 1.f;
+    }
+    else if (_y<-1.f)
+    {
+        f_y = -1.f;
+    }
+
+    if (_x >= 0.00f)
+    {
+        x = ((X_CENTER-1)+((float)X_CENTER*f_x));
+    }
+    else
+    {
+        x = ((X_CENTER)+((float)X_CENTER*f_x));
+    }
+
+    if (_y >= 0.00f)
+    {
+        y = ((Y_CENTER-1)+((float)Y_CENTER*f_y));
+    }
+    else
+    {
+        y = ((Y_CENTER)+((float)Y_CENTER*f_y));
+    }
+    
+    *out_x = x;
+    *out_y = y;
+    
+    return ((x)) + ((X_COUNT) * (y));
+}
+
+/**
+ * makes the proper calls and sitches internal vars to the opporiate values
+ */
+int TurnOnDisplay(void)
+{
+    //is checked first to make sure the display has been inited
+    if (0 == _isDisplayInit)
     {
         return -1;
     }
+
     if (1 == _isDisplayInit && 0 == _isDisplayRunning)
     {
-        (void)esp_lcd_panel_disp_on_off(waveShareDisplay_panel,1); //calls ESP-IDF lcd internal code to turn on display signaals
+        //calls ESP-IDF lcd internal code to turn on display signaals
+        (void)esp_lcd_panel_disp_on_off(waveShareDisplay_panel,1);
         _isDisplayRunning =1;
-        init_FrameBuffer();
-        esp_lcd_rgb_panel_restart(waveShareDisplay_panel);
-        return 1;
-    }
-    if (1 == _isDisplayInit && 1 == _isDisplayRunning) //does nothing is the display is already running
-    {
+
+        //asigns frame buffer pointers
+        if (1 == FRAMEBUFFERNUM)
+        {
+            (void)esp_lcd_rgb_panel_get_frame_buffer(waveShareDisplay_panel,FRAMEBUFFERNUM,&FrameBuffer0);
+        }
+        else if (2 == FRAMEBUFFERNUM)
+        {
+            (void)esp_lcd_rgb_panel_get_frame_buffer(waveShareDisplay_panel,FRAMEBUFFERNUM,&FrameBuffer0, &FrameBuffer1);
+        }
+        
         return 0;
     }
-    return -404; //only returns if something unexspected happens, but this should never be called
+
+    //does nothing is the display is already running
+    if (1 == _isDisplayInit && 1 == _isDisplayRunning)
+    {
+        return 1;
+    }
+
+    //only returns if something unexspected happens, but this should never be called
+    return -404;
 }
 
-int TurnOffDisplay()//makes the proper calls and sitches internal vars to the opporiate values
+/**
+ * makes the proper calls and sitches internal vars to the opporiate values
+ */
+int TurnOffDisplay()
 {
-    if (0 == _isDisplayInit) //is checked first to make sure the display has been inited
+    //is checked first to make sure the display has been inited
+    if (0 == _isDisplayInit)
     {
         return -1;
     }
+
     if (1 == _isDisplayInit && 1 == _isDisplayRunning)
     {
-        (void)esp_lcd_panel_disp_on_off(waveShareDisplay_panel,0); //calls ESP-IDF lcd internal code to turn off display signaals
+        //calls ESP-IDF lcd internal code to turn off display signaals
+        (void)esp_lcd_panel_disp_on_off(waveShareDisplay_panel,0);
+        
+        // re-asigns the frame buffer pointers to NULL to makesure nothing funcy is going on
+        deinit_FrameBuffer();
         _isDisplayRunning = 0;
-        return 1;
-    }
-    if (1 == _isDisplayInit && 0 == _isDisplayRunning) // doesnothing is the display is already off
-    {
+
         return 0;
     }
-    return -404; //only returns if something unexspected happens, but this should never be called
+
+    // doesnothing is the display is already off
+    if (1 == _isDisplayInit && 0 == _isDisplayRunning)
+    {
+        return 1;
+    }
+
+    //only returns if something unexspected happens, but this should never be called
+    return -404;
 }
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                           PUBLIC STRUCTS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -154,7 +298,194 @@ int TurnOffDisplay()//makes the proper calls and sitches internal vars to the op
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           PUBLIC FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+//DRAWING FUNCTIONS:
+
+
+int FlushColorToDisplay(const RGB16 _color)
+{
+    //checks if the buffer pointers have been inited
+    if (NULL == FrameBuffer0 || NULL == FrameBuffer1) 
+    {
+        return -1;
+    }
+
+    //writes to framebuffer1
+    for (size_t y = 0; y < V_COUNT; y++)
+    {
+        for (size_t x = 0; x < H_COUNT; x++)
+        {
+            ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = _color;
+        }
+    }
+    //LOADS FRAME BUFFER 1 INTO FRAM BUFFER 0
+    (void)esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,X_COUNT,Y_COUNT,FrameBuffer1);
     
+    return 0;
+}
+
+int Build2DLine(const vertex2D _vertexList[2])
+{
+    //checks if the buffer pointers have been inited
+    if (NULL == FrameBuffer0 || NULL == FrameBuffer1) 
+    {
+        return -1;
+    }
+
+    unsigned short X_Max = 0;
+    unsigned short Y_Max = 0;
+    unsigned short X_Min = 0;
+    unsigned short Y_Min = 0;
+
+    unsigned short V0_X = 0;
+    unsigned short V0_Y = 0;
+    unsigned short V1_X = 0;
+    unsigned short V1_Y = 0;
+
+    //Assigns the properties above to the corrisponding values so that the next functions can draw the proper lines
+    (void)NormalToFramBufferArray(_vertexList[0].Vertex.X,_vertexList[0].Vertex.Y,&V0_X,&V0_Y);
+    (void)NormalToFramBufferArray(_vertexList[1].Vertex.X,_vertexList[1].Vertex.Y,&V1_X,&V1_Y);
+
+    //assigns the min max values of x and y for the the two vertexes
+    if (V1_X > V0_X)
+    {
+        X_Min = V0_X;
+        X_Max = V1_X;
+    }
+    else
+    {
+        X_Max = V0_X;
+        X_Min = V1_X;
+    }
+
+    if (V1_Y > V0_Y)
+    {
+        Y_Min = V0_Y;
+        Y_Max = V1_Y;
+    }
+    else
+    {
+        Y_Max = V0_Y;
+        Y_Min = V1_Y;
+    }
+
+    //trackers for the screen coordiniets (pixel locaion)
+    uint16_t y = 0;
+    uint16_t x = 0;
+
+    //checks to make sure the slope is not 0
+    if (0 == V1_Y-V0_Y)
+    {
+        for (x = X_Min; x <= X_Max; x++)
+        {
+            y = Y_Min;
+
+            ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = _vertexList[0].Color;
+        }
+    }
+    //checks to make sure the slop is not infinet
+    else if (0 == V1_X-V0_X)
+    {
+        for (y = Y_Min; y <= Y_Max; y++)
+        {
+            x = X_Min;
+
+            ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = _vertexList[0].Color;
+        }
+    }
+    //uses the slope formula to check pixel placement [y = {(y2-y1)/(x2-x1)*x+b}]
+    else
+    {
+        float DaSlope = (float)(V1_Y-V0_Y)/(float)(V1_X-V0_X);
+        //scans through the min and max x values to plot the apporiate y value
+        for (x = X_Min; x <= X_Max; x++)
+        {
+            y = ((DaSlope)*(x-V0_X))+V0_Y;
+
+            //incerts the coordinent to frame buffer 1
+            ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = _vertexList[0].Color;
+        }
+    }
+    
+    //make sure that the lcd_bitmap start and stop values are different
+    X_Max++;
+    Y_Max++;
+
+    //loads fram buffer 1 into frame buffer 0 
+    (void)esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,X_Min,Y_Min,X_Max,Y_Max,FrameBuffer1);
+
+    return 0;
+}
+
+int Build3DLine(const vertex3D _vertexList[2])
+{
+    //checks if the buffer pointers have been inited
+    if (NULL == FrameBuffer0 || NULL == FrameBuffer1) 
+    {
+        return -1;
+    }
+
+    return 1;
+}
+
+int Build2DShape(const mesh2D* _mesh)
+{
+    //checks if the buffer pointers have been inited
+    if (NULL == FrameBuffer0 || NULL == FrameBuffer1) 
+    {
+        return -1;
+    }
+
+    triangle2D* Triangle = NULL;
+
+    for (size_t m = 0; m < _mesh->TriangleCount; m++)
+    {
+        Triangle = _mesh->TriangleList;
+        vertex2D Line1[2] = {Triangle[m].vertex0,Triangle[m].vertex1};
+        vertex2D Line2[2] = {Triangle[m].vertex1,Triangle[m].vertex2};
+        vertex2D Line3[2] = {Triangle[m].vertex2,Triangle[m].vertex0};
+        
+        Build2DLine(Line1);
+        Build2DLine(Line2);
+        Build2DLine(Line3);
+    }
+
+    Triangle = NULL;
+
+    return 0;
+}
+int Build3DShape(const mesh3D* _mesh)
+{
+    //checks if the buffer pointers have been inited
+    if (NULL == FrameBuffer0 || NULL == FrameBuffer1) 
+    {
+        return -1;
+    }
+    return 1;
+}
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                           HELPER FUNCTIONS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Allows number to be used to set the RGB16 value
+ */
+RGB16 ToRGB16(unsigned int _red, unsigned int _green, unsigned int _blue)
+{
+    if (_red > 31 || _green > 63 || _blue > 31)
+    {
+        abort();
+    }
+    
+    RGB16 colorCode = 0;
+        //bitshifts the _color to the proper bitspace
+    colorCode = ((_blue << 11) | (_green << 5) | _red);
+
+    return colorCode;
+}
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           GETTERS AND SETTERS
@@ -172,44 +503,14 @@ int TurnOffDisplay()//makes the proper calls and sitches internal vars to the op
 void WSDisplayDriver(void)
 {
     if (0 == _isDisplayInit)
-    {
-        
-        esp_lcd_rgb_panel_config_t rgb_panel_config = //configureation setting for waveShareDisplay_panel
-        {
-            .clk_src = LCD_CLK_SRC_DEFAULT, //Select PLL_F160M as the default choice
-            .timings = //sets the timings FOR THE LCD signals
-            {
-                .pclk_hz            = D_CLK_SPEED,
-                .h_res              = H_COUNT,
-                .hsync_back_porch   = H_BACKPORCH,
-                .hsync_front_porch  = H_FRONTPORCH,
-                .hsync_pulse_width  = H_PULSWIDTH,
-                .v_res              = V_COUNT,
-                .vsync_back_porch   = V_BACKPORCH,
-                .vsync_front_porch  = V_FRONTPORCH,
-                .vsync_pulse_width  = V_PULSWIDTH,
-                .flags.pclk_active_neg =1
-            }, 
-            .data_width = RGB565,
-            .bits_per_pixel = 0, // set to zero so it can match the data width
-            .de_gpio_num = DE,
-            .hsync_gpio_num = H_SYNC,
-            .vsync_gpio_num = V_SYNC,
-            .pclk_gpio_num =  D_CLK,
-            .disp_gpio_num = -1, // not in use
-            .data_gpio_nums = {R3,R4,R5,R6,R7,G2,G3,G4,G5,G6,G7,B3,B4,B5,B6,B7},
-            .flags.fb_in_psram = true, // allocate frame buffers from PSRAM
-            .num_fbs = NUM_OF_FRAMEBUFFERS,
-            .dma_burst_size = 64, //idk why just needs to be in the power of 2's and 256 is the recommanded burst size for a 32bit system and 16 x 16 = 256 cannot exide 64 since its external memorry
-        };
-
-        esp_lcd_new_rgb_panel(&rgb_panel_config,&waveShareDisplay_panel); //ESP-IDF code the configers waveShareDisplay_panel
+    {        
+        //ESP-IDF code the configers waveShareDisplay_panel
+        (void)esp_lcd_new_rgb_panel(&rgb_panel_config,&waveShareDisplay_panel);
 
         //initualization of waveShareDisplay_panel
-        esp_lcd_panel_reset(waveShareDisplay_panel); //is called to clean the display
-        esp_lcd_panel_init(waveShareDisplay_panel);
+        (void)esp_lcd_panel_reset(waveShareDisplay_panel); //is called to clean the display
+        (void)esp_lcd_panel_init(waveShareDisplay_panel);
         
-
         //finished
         _isDisplayInit =1;
     }
@@ -223,9 +524,10 @@ void WSDisplayDriver(void)
 void _WSDisplayDriver_(void)
 {
     (void)TurnOffDisplay();
-    deinit_FrameBuffer();
-    esp_lcd_panel_reset(waveShareDisplay_panel); //is called to clean the display
-    esp_lcd_panel_del(waveShareDisplay_panel); //releases the pins and timers of the waveShareDisplay_panel
+    //is called to clean the display
+    (void)esp_lcd_panel_reset(waveShareDisplay_panel);
+    //releases the pins and timers of the waveShareDisplay_panel
+    (void)esp_lcd_panel_del(waveShareDisplay_panel);
 
     //finished
     _isDisplayInit =0;
@@ -236,180 +538,12 @@ void _WSDisplayDriver_(void)
 //                                                                           TEST AREA (*REMOVE BEFOR FLIGHT*)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-#define tBUFFERSIZE (H_COUNT*(V_COUNT/4))
-
-uint16_t _test_color_data[tBUFFERSIZE]; // Upload Buffer
-
-/**
- * is a function that cycles through all advaliable colors
- */
-static long callCount = 0; //is used to progress through the funtion for each time it is called
-int makeColor()
-{  
-    
-    const unsigned int scalar = 50;// Do not make zero
-    uint16_t Color = (WHITE/2)*(callCount/scalar); //is derived from the sine function ((PI/2)*time)
-
-    callCount++; //updates callCounter +1
-
-    return Color;
-}
-
-/**
- * upload buffer updats and display buffer upload to DMA
- */
-void t_updateDisplay()
+int tFlushDisplay(RGB16 _color)
 {
-    esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,800,120,_test_color_data);//updates the psram buffer for the DMA
-    for (int i = 0; i < tBUFFERSIZE; i++)
-    {
-        _test_color_data[i] = makeColor();
-    }
-    esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,120,800,240,_test_color_data);
-    for (int i = 0; i < tBUFFERSIZE; i++)
-    {
-        _test_color_data[i] = makeColor();
-    }
-    esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,240,800,360,_test_color_data);
-    for (int i = 0; i < tBUFFERSIZE; i++)
-    {
-        _test_color_data[i] = makeColor();
-    }
-    esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,360,800,480,_test_color_data);
-    
-    callCount =0;
-    for (size_t y = 0; y < V_COUNT; y++) //CURSED
-    {
-        for (size_t x = 0; x < H_COUNT; x++)
-        {
-            ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(x,y)] = BLACK;
-        }
-        
-    }
-    for (size_t y = 0; y < V_COUNT; y++) //CURSED
-    {
-        for (size_t x = 0; x < H_COUNT; x++)
-        {
-            ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(y,y)] = WHITE;
-        }
-        
-    }
-    esp_lcd_rgb_panel_restart(waveShareDisplay_panel);
-    esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,1,1,800,480,DrawingFrameBuffer);
-}
-
-/**
- * inits the color buffer and the display then displays the test resualts
- */
-int t_initDisplayTest(void)
-{
-
-    for (int i = 0; i < tBUFFERSIZE; i++) //upload buffer init
-    {
-        _test_color_data[i] = makeColor();
-    }
-    
-    WSDisplayDriver();  //display set up
-    
+    WSDisplayDriver();
     (void)TurnOnDisplay();
-    t_updateDisplay(); //internal fuction called to load the display buffer
-    
-  
-    return 1;
-}
 
-void t_bufferTest(void)
-{
-    if (NULL != DrawingFrameBuffer)
-    {
-        for (size_t y = 0; y < V_COUNT; y++)
-        {
-            for (size_t x = 0; x < H_COUNT; x++)
-            {
-                ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(x,y)] = BROWN;
-            }
-            
-        }
-        for (size_t y = 0; y < V_COUNT; y++)
-        {
-            for (size_t x = 0; x < H_COUNT; x++)
-            {
-                if ((x >((H_COUNT/2)-10) && x< ((H_COUNT/2)+10)) && (y >((V_COUNT/2)-10) && y< ((V_COUNT/2)+10)))
-                {
-                    ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(x,y)] = CYAN;
-                }
-            }
-            
-        }
-        for (size_t y = 0; y < V_COUNT; y++)
-        {
-            for (size_t x = 0; x < H_COUNT; x++)
-            {
-                if (x==(H_COUNT/2) || y == (V_COUNT/2))
-                {
-                    ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(x,y)] = RED;
-                }
-            }
-            
-        }
-        
-        for (size_t y = 0; y < V_COUNT; y++)
-        {
-            for (size_t x = 0; x < H_COUNT; x++)
-            {
-                if (y < 2 || y > (BUFFER_Y_MAX-2) )
-                {
-                    ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(x,y)] = WHITE;
-                }
-            }
-            
-        }
-        
-        for (size_t y = 0; y < V_COUNT; y++)
-        {
-            for (size_t x = 0; x < H_COUNT; x++)
-            {
-                if (x < 2 || x > (BUFFER_X_MAX-2) )
-                {
-                    ((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(x,y)] = WHITE;
-                }
-            }
-            
-        }
-        
-        //((uint16_t*)DrawingFrameBuffer)[ToFramBufferArray(0,0)] = BLACK;
-        
-        esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,H_COUNT,V_COUNT,DrawingFrameBuffer);
-        //esp_lcd_rgb_panel_restart(waveShareDisplay_panel);
-        esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,H_COUNT,V_COUNT,DrawingFrameBuffer);
-        esp_lcd_rgb_panel_restart(waveShareDisplay_panel);
-        esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,H_COUNT,V_COUNT,DrawingFrameBuffer);
-        esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,H_COUNT,V_COUNT,DrawingFrameBuffer);
-        
-    }
-    
+    int _resualt = FlushColorToDisplay(_color);
 
-    
-    
-}
-
-/**
- * inits the buffer and the display then displays the test resualts
- * @note: This code or device is buggy so you may have to reset the esp32-s3 5 - 7 times
- */
-int t_DisplayBufferTest(void)
-{
-    printf("\033[0;31mDisplay init = %s\nFrame Buffer Adress1 = %p\nFrame Buffer Adress2 = %p\033[0m\n",_isDisplayInit ? "True" : "False",MainFrameBuffer,DrawingFrameBuffer);
-    WSDisplayDriver();  //display set up
-    (void)TurnOnDisplay();
-    t_bufferTest();
-    esp_lcd_rgb_panel_restart(waveShareDisplay_panel);
-    printf("\033[0;31mDisplay init = %s\nFrame Buffer Adress1 = %p\nFrame Buffer Adress2 = %p\033[0m\n",_isDisplayInit ? "True" : "False",MainFrameBuffer,DrawingFrameBuffer);
-
-    /**
-     * these should be called but is instead called in the main loop for my personal demostartion
-    vTaskDelay(1000/portTICK_PERIOD_MS);
-    _WSDisplayDriver_();
-     */
-    return 1;
+    return _resualt;
 }

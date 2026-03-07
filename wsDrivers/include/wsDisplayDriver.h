@@ -7,7 +7,16 @@
  * The only way to drive the LCD display is by using the LCD API provided by espressif sinc it envolves direct register access that espressif /
  *      restricts for security reasons(wifi/bluetooth security)
  * RGB565 format will be used
- * This driver is not fully fleshed out and the device may need to be reset a couple of times befor the display shows up again
+ * the display will used normalized cordinets between -1 to 1
+ * 
+ * PROGRESS:
+ * [x] Display output(usins two frame buffer and a bounce buffer)
+ * [ ] Incorparate a Homogeneous Coordinates system (center of the screen is (0,0) / IDK if i wanna make the the coordinents 3D or 2D)
+ * [ ] Add drawing primitives <pixel, lines, rectangles, triangles, circles, rounded rectangles, bitmap>
+ * [ ] Add/ expose helper functions to make coding easier
+ * [ ] Add task creation to update the frame buffer
+ * (maybe make the vectors aarays.)
+ * [ ] refactor code to make it easier to read, faster to display, and to remove useless code
  */
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           HEADER GUARD
@@ -55,36 +64,99 @@
  * The dcumentation got me mostly there but the front and back porch had to be played with. same with the D_CLCK_SPEED
  */
 //TIMING
-    #define D_CLK_SPEED     16*1000*1000 // must between 23MHz - 14MHz
+    #define D_CLK_SPEED    14*1000*1000 // 10MHz
 
     #define H_COUNT         800
-    #define H_FRONTPORCH    48          //this number ended up being mor stable
-    #define H_BACKPORCH     8
+    #define H_FRONTPORCH    48 
+    #define H_BACKPORCH     12
     #define H_PULSWIDTH     4
 
     #define V_COUNT         480
-    #define V_FRONTPORCH    10
-    #define V_BACKPORCH     10
+    #define V_FRONTPORCH    12
+    #define V_BACKPORCH     12
     #define V_PULSWIDTH     4
 
-//DATA
-    #define NUM_OF_FRAMEBUFFERS 2
-
-// COLOR FORMAT (Number of data lines for each color in a pixel)
-    #define RGB888 (8+8+8)
-    #define RGB565 (5+6+5)  //realisticly the only one you will need for this project but the others were added as a demastration
-    #define RGB666 (6+6+6)
+//DMA
+    #define DMABURSTSIZE 32
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           CONSTRUCTOR AND DESTRUCTOR
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
-void WSDisplayDriver(void);     //init of display driver
 /**
- * This function must be called befor shutting down the display physically. errors will still pop up but they show up more with out this being called
+ * Init of display driver
  */
-void _WSDisplayDriver_(void);   //deinit of display driver
+void WSDisplayDriver(void);
+/**
+ * Deinit of display driver
+ * his function must be called befor shutting down the display physically. errors will still pop up but they show up more with out this being called
+ */
+void _WSDisplayDriver_(void);
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                           PUBLIC STRUCTS / TYPEDEFS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+    //a uint16 type to represent the RGB565 color scheme
+typedef unsigned short RGB16;
+
+    //A Vector/Point to repesented in 2D space
+typedef struct vec2D
+{
+    float X; //side to side
+    float Y; //up to down
+}vec2D;
+    //A Vector/Point to repesented in 3D space
+typedef struct vec3D
+{
+    float X; //side to side
+    float Y; //up to down
+    float Z; //front to back
+}vec3D;
+    //A primitive component to build triangles in 2D space
+typedef struct vertex2D
+{
+    vec2D Vertex;
+    RGB16 Color;
+}vertex2D;
+    //A primitive component to build triangles in 3D space
+typedef struct vertex3D
+{
+    vec3D Vertex;
+    RGB16 Color;
+}vertex3D;
+    //A primitive to build shapes in 2D space
+typedef struct triangle2D
+{
+    vertex2D vertex0;
+    vertex2D vertex1;
+    vertex2D vertex2;
+}triangle2D;
+    //A primitive to build shapes in 3D space
+typedef struct triangle3D
+{
+    vertex3D vertex0;
+    vertex3D vertex1;
+    vertex3D vertex2;
+}triangle3D;
+    //A primitive to build an object in 2D space
+    //the origine must use normalized cordinates between -1 to 1
+typedef struct mesh2D
+{
+    unsigned long TriangleCount;
+    triangle2D* TriangleList;
+    vec2D Traslation;
+    vec2D Origin;
+}mesh2D;
+    //A primitive to build an object in 3D space
+typedef struct mesh3D
+{
+    triangle3D* TriangleList;
+    vec3D Rotation;
+    vec3D Traslation;
+    vec3D Origin;
+}mesh3D;
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
@@ -92,15 +164,18 @@ void _WSDisplayDriver_(void);   //deinit of display driver
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 
 
+
+
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           PUBLIC FUNCTIONS
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
 /**
  * this can be called after WSDisplayDriver() has been called
  * will return 1 if ran properly
  * @return -1 = Display not properly inted
- * @return 0 if already running
- * @return 1 is called properly
+ * @return 1 if already running
+ * @return 0 is called properly
  */
 int TurnOnDisplay(void);
 
@@ -108,11 +183,56 @@ int TurnOnDisplay(void);
  * this can be called after WSDisplayDriver() and TurnOnDisplay() has been called
  * will return 1 if ran properly
  * @return -1 = Display not properly inted
- * @return 0 if already off
- * @return 1 is called properly
+ * @return 1 if already off
+ * @return 0 is called properly
  */
 int TurnOffDisplay(void);
-    
+
+//DRAWING FUNCTIONS
+/**
+ * will wipe the whole display with one color
+ * @return -1 if the Display has not been turned on properly
+ */
+int FlushColorToDisplay(const RGB16 _color);
+
+/**
+ * A function that will displaye the line to the display
+ * @return -1 if the Display has not been turned on properly
+ */
+int Build2DLine(const vertex2D _vertexList[2]);
+
+/**
+ * A function that will displaye the line to the display
+ * @return -1 if the Display has not been turned on properly
+ * @note: not implamented yet
+ */
+int Build3DLine(const vertex3D _vertexList[2]);
+
+/**
+ * A function that will displaye the Mesh object to the display
+ * @return -1 if the Display has not been turned on properly
+ */
+int Build2DShape(const mesh2D* _mesh);
+
+/**
+ * A function that will displaye the Mesh object to the display
+ * @return -1 if the Display has not been turned on properly
+ * @note: not implamented yet
+ */
+int Build3DShape(const mesh3D* _mesh);
+
+
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+//                                                                           HELPER FUNCTIONS
+////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
+
+/**
+ * Allows number to be used to set a RGB16 value
+ * red and blue must be 31 - 0 and green must be 63 - 0
+ * any else will abort
+ */
+RGB16 ToRGB16(unsigned int _red, unsigned int _green, unsigned int _blue);
+
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           GETTERS AND SETTERS
@@ -126,8 +246,6 @@ int TurnOffDisplay(void);
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
 //                                                                           TESTER FUNCTIONS (*REMOVE BEFOR FLIGHT*)
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
-
-int t_initDisplayTest(void); // just a test fuction to turn the screen with a color range test. Should be called alone(set D_CLK_SPEED to 16MHz for clearer resualts)
-int t_DisplayBufferTest(void); // just a test fuction to help pin point the for corners and the center. Should be called alone
+int tFlushDisplay(RGB16 _color);
 
 #endif
