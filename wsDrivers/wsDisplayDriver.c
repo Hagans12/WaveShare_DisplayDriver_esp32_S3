@@ -163,7 +163,7 @@ unsigned int ToFramBufferArray(const unsigned int _x, const unsigned int _y)
 /**
  * is used in relation to a for loop or a 2d array and output a corrisponding 1d frame buffer array position
  */
-unsigned int NormalToFramBufferArray(const float _x, const float _y, unsigned short* out_x, unsigned short* out_y)
+unsigned int NormalToFramBufferArray(const float _x, const float _y, short* out_x, short* out_y)
 {
     unsigned int x = 0;
     unsigned int y = 0;
@@ -173,23 +173,6 @@ unsigned int NormalToFramBufferArray(const float _x, const float _y, unsigned sh
     f_x = _x;
     f_y = _y;
     
-    if (_x > (float)ASPECTRATIO_X)  
-    {
-        f_x = (float)ASPECTRATIO_X;
-    }
-    else if (_x<-(float)ASPECTRATIO_X)
-    {
-        f_x = -(float)ASPECTRATIO_X;
-    }
-    
-    if (_y > (float)ASPECTRATIO_Y)  
-    {
-        f_y = (float)ASPECTRATIO_Y;
-    }
-    else if (_y<-(float)ASPECTRATIO_Y)
-    {
-        f_y = -(float)ASPECTRATIO_Y;
-    }
 
     if (_x >= 0.00f)
     {
@@ -288,28 +271,359 @@ int TurnOffDisplay()
     return -404;
 }
 
-void DrawLine(Vec2D _v1, Vec2D _v2)//WIP
-{
-    float XMin = _v1.X;
-    float XMax = _v2.X;
-    float YMin = _v1.Y;
-    float YMax = _v2.Y;
 
-    if (XMax < XMin)
+void DrawLine(Vertex _v1, Vertex _v2){
+    //vector breakdown
+    float X_V1 = _v1.Coordinate.XY.X;
+    float X_V2 = _v2.Coordinate.XY.X;
+    float Y_V1 = _v1.Coordinate.XY.Y;
+    float Y_V2 = _v2.Coordinate.XY.Y;
+
+    //unmodified cordinets
+    short X1 = 0;
+    short Y1 = 0;
+
+    short X2 = 0;
+    short Y2 = 0;
+
+
+    //ycounting range
+    short ithStart = 0;
+    short ithEnd = 0;
+    //x counting range
+    short jthStart = 0;
+    short jthEnd = 0;
+
+        //gets the pixel counting range
+        //starting pixels
+    NormalToFramBufferArray(X_V1,Y_V1,&X1,&Y1);
+        //ending pixels
+    NormalToFramBufferArray(X_V2,Y_V2,&X2,&Y2);
+
+    //init start and stop points for x and y
+    if (Y1 > Y2)
     {
-        float tempF = XMax;
-        XMax = XMin;
-        XMin = tempF;
+        ithEnd = Y1;
+        ithStart = Y2;
     }
-    if (YMax < YMin)
+    else
     {
-        float tempF = XMax;
-        XMax = XMin;
-        XMin = tempF;
+        ithEnd = Y2;
+        ithStart = Y1;
     }
 
+    if (X1 > X2)
+    {
+        jthEnd = X1;
+        jthStart = X2;
+    }
+    else
+    {
+        jthEnd = X2;
+        jthStart = X1;
+    }
+    
+
+
+    //checks for special slope conditions
+    //if slope is a vertical line
+    if ((X_V2 - X_V1) == 0.f)
+    {
+        for (size_t i = ithStart; i <= ithEnd; i++)
+        {
+            size_t CurrentPixel = ToFramBufferArray(jthEnd,i);
+            ((RGB16*)FrameBuffer1)[CurrentPixel] = InterpulateRGB16(_v1.VertexColor,_v2.VertexColor,Y1,Y2,i);
+            
+        }
+    }
+    //if slope is a flat line
+    else if ((Y_V2 - Y_V1) == 0.f)
+    {
+        for (size_t j = jthStart; j <= jthEnd; j++)
+        {
+            size_t CurrentPixel = ToFramBufferArray(j,ithEnd);
+            ((RGB16*)FrameBuffer1)[CurrentPixel] = InterpulateRGB16(_v1.VertexColor,_v2.VertexColor,X1,X2,j);
+            
+        }
+    }
+    else
+    {
+        float correctSlope = ((float)(Y_V2 - Y_V1))/((float)(X_V2 - X_V1));
+
+        for (size_t i = ithStart; i <= ithEnd; i++)
+        {
+            for (size_t j = jthStart; j <= jthEnd; j++)
+            {
+                if (i == ((correctSlope*(j-X1))+Y1))
+                {
+                    size_t CurrentPixel = ToFramBufferArray(j,i);
+                    RGB16 NewColor = InterpulateRGB16(_v1.VertexColor,_v2.VertexColor,X1,X2,j);
+                    ((RGB16*)FrameBuffer1)[CurrentPixel] = NewColor;
+                }
+                 
+                
+            }
+            
+        }
+    }
 
     
+    
+    //LOADS FRAME BUFFER 1 INTO FRAM BUFFER 0
+    (void)esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,X_COUNT,Y_COUNT,FrameBuffer1);
+    
+}
+
+
+void FillShape(Vertex _v1, Vertex _v2, Vertex _v3)//WIP
+{
+    //vector breakdown
+    float X_V1 = _v1.Coordinate.XY.X;
+    float X_V2 = _v2.Coordinate.XY.X;
+    float X_V3 = _v3.Coordinate.XY.X;
+    float Y_V1 = _v1.Coordinate.XY.Y;
+    float Y_V2 = _v2.Coordinate.XY.Y;
+    float Y_V3 = _v3.Coordinate.XY.Y;
+
+    //unmodified cordinets
+    short X1 = 0;
+    short Y1 = 0;
+
+    short X2 = 0;
+    short Y2 = 0;
+
+    short X3 = 0;
+    short Y3 = 0;
+
+
+    //ycounting range
+    short ithStart = 0;
+    short ithEnd = 0;
+    //x counting range
+    short jthStart = 0;
+    short jthEnd = 0;
+
+        
+        //Vertex 1 pixels
+    NormalToFramBufferArray(X_V1,Y_V1,&X1,&Y1);
+        //Vertex 2 pixels
+    NormalToFramBufferArray(X_V2,Y_V2,&X2,&Y2);
+        //Vertex 3 pixels
+    NormalToFramBufferArray(X_V3,Y_V3,&X3,&Y3);
+
+    //gets the pixel counting range
+    //init start and stop points for x and y
+    if (X1 > X2)
+    {
+        if (X1 > X3)
+        {
+            jthEnd = X1;
+        }
+        else
+        {
+            jthEnd = X3;
+        }
+        
+        
+    }
+    else
+    {
+        if (X2 > X3)
+        {
+            jthEnd = X2;
+        }
+        else
+        {
+            jthEnd = X3;
+        }
+        
+    }
+
+    if (X1<X2)
+    {
+        if (X1 < X3)
+        {
+            jthStart = X1;
+        }
+        else
+        {
+            jthStart = X3;
+        }
+        
+        
+    }
+    else
+    {
+        if (X2 < X3)
+        {
+            jthStart = X2;
+        }
+        else
+        {
+            jthStart = X3;
+        }
+        
+    }
+
+    if (Y1 > Y2)
+    {
+        if (Y1 > Y3)
+        {
+            ithEnd = Y1;
+        }
+        else
+        {
+            ithEnd = Y3;
+        }
+        
+        
+    }
+    else
+    {
+        if (Y2 > Y3 )
+        {
+            ithEnd = Y2;
+        }
+        else
+        {
+            ithEnd = Y3;
+        }
+        
+    }
+
+    if (Y1 < Y2)
+    {
+        if (Y1 < Y3)
+        {
+            ithStart = Y1;
+        }
+        else
+        {
+            ithStart = Y3;
+        }
+        
+        
+    }
+    else
+    {
+        if (Y2 < Y3)
+        {
+            ithStart = Y2;
+        }
+        else
+        {
+            ithStart = Y3;
+        }
+        
+    }
+
+    //vectors for the cross product of the vertex and the pixels to be displayed
+    int vec1[2] = {(X2-X1),(Y2-Y1)};
+    int vec2[2] = {(X3-X2),(Y3-Y2)};
+    int vec3[2] = {(X1-X3),(Y1-Y3)};
+
+    int veca[2] = {(X3-X1),(Y3-Y1)};
+
+    //for normalizing the color cordinates to a barycentric coordinates system
+    float area = ((vec1[0]*veca[1])-(vec1[1]*veca[0]));
+
+    for (size_t i = ithStart; i <= ithEnd; i++)
+    {
+        for (size_t j =jthStart; j <= jthEnd; j++)
+        {
+            
+            // more vectors for the cross product of the vertex and the pixels to be displayed
+            int vec1p[2] = {(j-X1),(i-Y1)};
+            int vec2p[2] = {(j-X2),(i-Y2)};
+            int vec3p[2] = {(j-X3),(i-Y3)};
+
+            
+            //the cross product
+            int w1 = ((vec1[0]*vec1p[1])-(vec1[1]*vec1p[0]));
+            int w2 = ((vec2[0]*vec2p[1])-(vec2[1]*vec2p[0]));
+            int w3 = ((vec3[0]*vec3p[1])-(vec3[1]*vec3p[0]));
+
+            
+
+
+            if (w1 >=0 && w2 >=0 && w3 >=0) // checkis if the pixels falls inbetween the triangle
+            {
+                
+                //the modifires for the color based on the pixels location
+                float alpha = (float)w1 / (float)area;
+                float beta = (float)w2 / (float)area;
+                float gamma = (float)w3 / (float)area;
+                
+
+                RGB16 ColorHold = 0; //a color place holder so the orginal color doent get modified
+
+                uint8_t red1 = 0;
+                uint8_t green1 = 0;
+                uint8_t blue1 = 0;
+
+                uint8_t red2 = 0;
+                uint8_t green2 = 0;
+                uint8_t blue2 = 0;
+
+                uint8_t red3 = 0;
+                uint8_t green3 = 0;
+                uint8_t blue3 = 0;
+
+                int8_t redNew = 0;
+                int8_t greenNew = 0;
+                int8_t blueNew = 0;
+
+                //breaks down the color into its three componets of red green and blue
+                ColorHold = _v1.VertexColor;
+
+                
+
+                //color 1
+                red1 = (0b11111 & ColorHold);
+                ColorHold = ColorHold >> 5;
+                green1 = (0b111111 & ColorHold);
+                ColorHold = ColorHold >> 6;
+                blue1 = (0b11111 & ColorHold);
+
+                ColorHold = _v2.VertexColor;
+                //color 2
+                red2 = (0b11111 & ColorHold);
+                ColorHold = ColorHold >> 5;
+                green2 = (0b111111 & ColorHold);
+                ColorHold = ColorHold >> 6;
+                blue2 = (0b11111 & ColorHold);
+
+                ColorHold = _v3.VertexColor;
+                //color 3
+                red3 = (0b11111 & ColorHold);
+                ColorHold = ColorHold >> 5;
+                green3 = (0b111111 & ColorHold);
+                ColorHold = ColorHold >> 6;
+                blue3 = (0b11111 & ColorHold);
+
+                //the colors adjustments for each othe the color channels
+                redNew = (beta*red1)+(gamma*red2)+(alpha*red3);
+                greenNew = (beta*green1)+(gamma*green2)+(alpha*green3);
+                blueNew = (beta*blue1)+(gamma*blue2)+(alpha*blue3);
+
+                RGB16 NewColor = ToRGB16(redNew,greenNew,blueNew);//combines the the three channels into a single varriable
+
+                //loads the pixel into the buffer array7
+                size_t CurrentPixel = ToFramBufferArray(j,i);
+                ((RGB16*)FrameBuffer1)[CurrentPixel] = NewColor;
+                
+            }
+            
+            
+
+        }
+        
+    }
+    
+    //(void)esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,X_COUNT,Y_COUNT,FrameBuffer1);
+
+
+
 }
 
 
@@ -413,14 +727,7 @@ RGB16 ToRGB16( int _red,  int _green, int _blue)
 RGB16 InterpulateRGB16(RGB16 _colorStart, RGB16 _colorEnd, int _positionStart, int _positionEnd, int _positionCurrent)
 {
 
-    if (_positionStart == _positionCurrent)
-    {
-        return _colorStart;
-    }
-    if (_positionEnd == _positionCurrent)
-    {
-        return _colorEnd;
-    }
+
     
     uint8_t red1 = 0;
     uint8_t green1 = 0;
@@ -531,14 +838,25 @@ int tDrawSomething()
     WSDisplayDriver();
     int _resualt = TurnOnDisplay();
 
-    Vec3D p1 = {3.f,3.f,1.f};
-    Vec3D p2 = {-3.f,3.f,1.f};
-    Vec3D p3 = {3.f,-3.f,1.f};
-    Vec3D p4 = {-3.f,-3.f,1.f};
-    Vec3D p1b = {3.f,3.f,1.2};
-    Vec3D p2b = {-3.f,3.f,1.2};
-    Vec3D p3b = {3.f,-3.f,1.2};
-    Vec3D p4b = {-3.f,-3.f,1.2};
+    Vertex CubeVertex[] = {
+        {.Coordinate.XYZ = {-3.f,-3.f,1.f},.VertexColor = WHITE},{.Coordinate.XYZ ={-3.f,3.f,1.f},.VertexColor = WHITE},{.Coordinate.XYZ ={3.f,3.f,1.f},.VertexColor = WHITE},{.Coordinate.XYZ ={3.f,-3.f,1.f},.VertexColor = WHITE},  //front verties
+        {.Coordinate.XYZ ={-3.f,-3.f,3.2,},.VertexColor = BLACK},{.Coordinate.XYZ ={-3.f,3.f,3.2},.VertexColor = BLACK},{.Coordinate.XYZ ={3.f,3.f,3.2},.VertexColor = BLACK},{.Coordinate.XYZ ={3.f,-3.f,3.2},.VertexColor = BLACK}};   //back verties
+    
+        /*THIS MATTER THE MOST VERTEIES MUST BE PUT IN THE CORRECT ORDER OR WILL NOT RENDER PROPERLY*/
+        unsigned int CubeFaceConstrcution[][3] = {{6,5,8},{6,8,7},  //back
+                                              {2,6,7},{2,7,3},  //up
+                                              {5,1,4},{5,4,8},  //down
+                                              {5,6,2},{5,2,1},  //left
+                                              {4,3,7},{4,7,8},  //right
+                                              {3,2,1},{4,3,1}}; //front
+
+    Mesh3D ACube =
+    {
+        .NumberOfFaces = 10,
+        .NumberOfVertices = 8,
+        .VertexArray = CubeVertex,
+        .FaceConstruction = CubeFaceConstrcution
+    };
 
     //checks if the buffer pointers have been inited
     if (NULL == FrameBuffer0 || NULL == FrameBuffer1) 
@@ -546,37 +864,52 @@ int tDrawSomething()
         return -1;
     }
 
-    //writes to framebuffer1
-    uint16_t x = 0;
-    uint16_t y = 0;
 
-    NormalToFramBufferArray(p1b.X/p1b.Z,p1b.Y/p1b.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
+   for (size_t i = 0; i < ACube.NumberOfFaces; i++)
+    {
+        //sets up the vertexs
+        Vertex Vertex1 = {.Coordinate.XY.X = ((ACube.VertexArray[ACube.FaceConstruction[i][0]-1].Coordinate.XYZ.X)/(ACube.VertexArray[ACube.FaceConstruction[i][0]-1].Coordinate.XYZ.Z)), .Coordinate.XY.Y = ((ACube.VertexArray[ACube.FaceConstruction[i][0]-1].Coordinate.XYZ.Y)/(ACube.VertexArray[ACube.FaceConstruction[i][0]-1].Coordinate.XYZ.Z)),.VertexColor=(ACube.VertexArray[ACube.FaceConstruction[i][0]-1].VertexColor)};
+        Vertex Vertex2 = {.Coordinate.XY.X = ((ACube.VertexArray[ACube.FaceConstruction[i][1]-1].Coordinate.XYZ.X)/(ACube.VertexArray[ACube.FaceConstruction[i][1]-1].Coordinate.XYZ.Z)), .Coordinate.XY.Y = ((ACube.VertexArray[ACube.FaceConstruction[i][1]-1].Coordinate.XYZ.Y)/(ACube.VertexArray[ACube.FaceConstruction[i][1]-1].Coordinate.XYZ.Z)),.VertexColor=(ACube.VertexArray[ACube.FaceConstruction[i][1]-1].VertexColor)};
+        Vertex Vertex3 = {.Coordinate.XY.X = ((ACube.VertexArray[ACube.FaceConstruction[i][2]-1].Coordinate.XYZ.X)/(ACube.VertexArray[ACube.FaceConstruction[i][2]-1].Coordinate.XYZ.Z)), .Coordinate.XY.Y = ((ACube.VertexArray[ACube.FaceConstruction[i][2]-1].Coordinate.XYZ.Y)/(ACube.VertexArray[ACube.FaceConstruction[i][2]-1].Coordinate.XYZ.Z)),.VertexColor=(ACube.VertexArray[ACube.FaceConstruction[i][2]-1].VertexColor)};
 
-    NormalToFramBufferArray(p2b.X/p2b.Z,p2b.Y/p2b.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
+        FillShape(Vertex1,Vertex2,Vertex3);
 
-    NormalToFramBufferArray(p3b.X/p3b.Z,p3b.Y/p3b.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
+        //draws the lines
+        //DrawLine(Vertex1,Vertex2);
+        //DrawLine(Vertex2,Vertex3);
+        //DrawLine(Vertex3,Vertex1);
+        //DrawLine(Vertex1,Vertex3);
+    }
 
-    NormalToFramBufferArray(p4b.X/p4b.Z,p4b.Y/p4b.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
+    Vertex ColorSquarVertex[] = {
+        {.Coordinate.XYZ = {-4.f,4.f,1.f},.VertexColor = WHITE},{.Coordinate.XYZ = {-7.f,1.f,1.f},.VertexColor = RED},{.Coordinate.XYZ ={-7.f,7.f,1.f},.VertexColor = GREEN},{.Coordinate.XYZ ={-1.f,7.f,1.f},.VertexColor = BLUE},{.Coordinate.XYZ ={-1.f,1.f,1.f},.VertexColor = YELLOW}};
+    unsigned int ColorSquarConstrcution[][3] = {{3,2,1},{4,3,1},
+                                              {5,4,1},{2,5,1}};
 
+    Mesh3D ColorSquar =
+    {
+        .NumberOfFaces = 4,
+        .NumberOfVertices = 5,
+        .VertexArray = ColorSquarVertex,
+        .FaceConstruction = ColorSquarConstrcution
+    };
 
-    NormalToFramBufferArray(p1.X/p1.Z,p1.Y/p1.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
+    for (size_t i = 0; i < ColorSquar.NumberOfFaces; i++)
+    {
+        //sets up the vertexs
+        Vertex Vertex1 = {.Coordinate.XY.X = ((ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][0]-1].Coordinate.XYZ.X)/(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][0]-1].Coordinate.XYZ.Z)), .Coordinate.XY.Y = ((ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][0]-1].Coordinate.XYZ.Y)/(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][0]-1].Coordinate.XYZ.Z)),.VertexColor=(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][0]-1].VertexColor)};
+        Vertex Vertex2 = {.Coordinate.XY.X = ((ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][1]-1].Coordinate.XYZ.X)/(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][1]-1].Coordinate.XYZ.Z)), .Coordinate.XY.Y = ((ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][1]-1].Coordinate.XYZ.Y)/(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][1]-1].Coordinate.XYZ.Z)),.VertexColor=(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][1]-1].VertexColor)};
+        Vertex Vertex3 = {.Coordinate.XY.X = ((ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][2]-1].Coordinate.XYZ.X)/(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][2]-1].Coordinate.XYZ.Z)), .Coordinate.XY.Y = ((ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][2]-1].Coordinate.XYZ.Y)/(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][2]-1].Coordinate.XYZ.Z)),.VertexColor=(ColorSquar.VertexArray[ColorSquar.FaceConstruction[i][2]-1].VertexColor)};
 
-    NormalToFramBufferArray(p2.X/p2.Z,p2.Y/p2.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
+        FillShape(Vertex1,Vertex2,Vertex3);
 
-    NormalToFramBufferArray(p3.X/p3.Z,p3.Y/p3.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
-
-    NormalToFramBufferArray(p4.X/p4.Z,p4.Y/p4.Z,&x,&y);
-    ((RGB16*)FrameBuffer1)[ToFramBufferArray(x,y)] = CYAN;
-  
-    //LOADS FRAME BUFFER 1 INTO FRAM BUFFER 0
-    (void)esp_lcd_panel_draw_bitmap(waveShareDisplay_panel,0,0,X_COUNT,Y_COUNT,FrameBuffer1);
+        //draws the lines
+        DrawLine(Vertex1,Vertex2);
+        DrawLine(Vertex2,Vertex3);
+        DrawLine(Vertex3,Vertex1);
+        DrawLine(Vertex1,Vertex3);
+    }
+    
 
     return _resualt;
 }

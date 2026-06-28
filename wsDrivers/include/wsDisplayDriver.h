@@ -130,17 +130,29 @@ typedef struct
     float Y;
 }Vec2D;
 
-    //a drawing primitive for drawing a 3d shape
+typedef union
+{
+    Vec2D XY;
+    Vec3D XYZ;
+    Vec4D XYZW;
+} Coordinate;
+
+
 typedef struct
 {
-    Vec3D Vector[3];
-}Triangle3D;
+    Coordinate Coordinate;
+    RGB16 VertexColor;
+}Vertex;
+
+
 
     //a data structure for contaning and minuplating 3d objects
 typedef struct
 {
-    unsigned int TriangleCount;
-    Triangle3D* TriagleArray;
+    unsigned int NumberOfVertices;
+    unsigned int NumberOfFaces;
+    Vertex* VertexArray;
+    unsigned int (*FaceConstruction)[3];
 }Mesh3D;
 
 
@@ -183,29 +195,15 @@ int FlushColorToDisplay(const RGB16 _color);
 
 /**
  * A function that will displaye the line to the display
- * @return -1 if the Display has not been turned on properly
  */
-//int Build2DLine(const vertex2D _vertexList[2]);
+void DrawLine(Vertex _v1, Vertex _v2);
+
+
 
 /**
- * A function that will displaye the line to the display
- * @return -1 if the Display has not been turned on properly
- * @note: not implamented yet
+ * A function that will displaye the solid shape to the display
  */
-//int Build3DLine(const vertex3D _vertexList[2]);
-
-/**
- * A function that will displaye the Mesh object to the display
- * @return -1 if the Display has not been turned on properly
- */
-//int Build2DShape(const mesh2D* _mesh);
-
-/**
- * A function that will displaye the Mesh object to the display
- * @return -1 if the Display has not been turned on properly
- * @note: not implamented yet
- */
-//int Build3DShape(const mesh3D* _mesh);
+void FillShape(Vertex _v1, Vertex _v2, Vertex _v3);
 
 
 ////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////////
